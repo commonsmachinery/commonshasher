@@ -1,0 +1,3 @@
+[submodule "blockhash"]
+	path = blockhash
+	url = https://github.com/commonsmachinery/blockhash-python
