@@ -4,6 +4,9 @@ import tempfile
 import requests
 from lxml import etree
 import subprocess
+from datetime import datetime
+
+from sqlalchemy.sql import bindparam
 
 import celery
 from celery import task
@@ -89,39 +92,67 @@ def get_metadata(filelist):
 
     return filedata
 
-@task(bind=True, base=DatabaseTask)
-def process(self, args):
-    works_apidata, works_hash = args
+@task(name='wmc.process', bind=True, base=DatabaseTask,
+      track_started=True, ignore_result=True)
+def process(self, work_ids):
+    """Process a list of WMC works, given by their database IDs.  This should
+    be a suitably large batch for calling the metadata API, e.g. 50 records.
+    """
 
-    work_ids = {work.url: work.id for work in works_apidata}
-    filelist = [work.url for work in works_apidata]
-    apidata = get_metadata(filelist)
+    if not work_ids:
+        logger.warning('called without any works')
+        return
 
-    hash_tasks = []
+    logger.info('processing: {}'.format(work_ids))
 
-    for filename in filelist:
-        thumburl = apidata[filename].get('thumburl', None)
-        work_id = work_ids[filename]
+    # Set ourselves as processing these tasks
+    stmt = db.Work.__table__.update().where(
+        db.Work.id.in_(work_ids)
+    ).where(
+        db.Work.task_id == None
+    ).where(
+        db.Work.status == 'queued'
+    ).values(task_id=self.request.id, process_start=datetime.now(), status='processing')
 
-        # set apidata for works here, since we already have the metadata for them
-        self.db.query(db.Work).filter_by(id=work_id).\
-            update({
-                "apidata": json.dumps(apidata[filename]),
-                "apidata_status": "done",
-            }, synchronize_session=False)
-
-        # and add hashing task to execute them in batch below
-        if thumburl is not None:
-            hash_tasks.append(wmc_update_hash.s(work_id, thumburl))
-
+    # logger.info('executing: {} with {}'.format(stmt, stmt.compile().params))
+    self.db.execute(stmt)
     self.db.commit()
 
-    g = celery.group(hash_tasks)
+    # Then load the work objects we got hold of
+    works = self.db.query(db.Work).filter_by(
+        task_id=self.request.id, status='processing'
+    ).all()
 
-    return g()
+    if not works:
+        logger.warning('did not find any works to process')
+        return
 
-@task(bind=True, base=DatabaseTask, rate_limit=config.WMC_RATE_LIMIT)
-def wmc_update_hash(self, work_id, image_url):
+    logger.info('working on {} objects'.format(len(works)))
+
+    filelist = [work.url for work in works]
+    apidata = get_metadata(filelist)
+
+    for work in works:
+        data = apidata[work.url]
+        thumburl = data.get('thumburl', None)
+
+        work.apidata = json.dumps(data)
+        self.db.commit()
+
+        if thumburl is not None:
+            # queue a hashing task for this work
+            update_hash.apply_async((work.id, thumburl))
+        else:
+            # nothing to hash, so we are done
+            work.status = 'done'
+            self.db.commit()
+
+
+@task(name='wmc.update_hash', bind=True, base=DatabaseTask, rate_limit=config.WMC_RATE_LIMIT,
+      track_started=True, ignore_result=True)
+def update_hash(self, work_id, image_url):
+    work = self.db.query(db.Work).filter_by(id=work_id).one()
+
     tfile = tempfile.NamedTemporaryFile()
     logger.debug('Retrieving %s to %s' % (image_url, tfile.name))
 
@@ -130,24 +161,26 @@ def wmc_update_hash(self, work_id, image_url):
         tfile.write(r.content)
     except requests.exceptions.RequestException:
         logger.warning('Unable to retrieve %s' % image_url)
-        return None
+        work.status = 'error'
+        self.db.commit()
+        return
 
     try:
         retval = subprocess.check_output([config.BLOCKHASH_COMMAND, tfile.name], universal_newlines=True)
     except (subprocess.CalledProcessError, BlockingIOError):
         logger.debug('%s not supported by blockhash.py' % image_url)
-        return None
-    else:
-        hash = retval.partition(' ')[2]
-        hash = hash.strip()
-        logger.debug('Blockhash from external cmd: %s' % hash)
+        work.status = 'error'
+        self.db.commit()
+        return
+
+    hash = retval.partition(' ')[2]
+    hash = hash.strip()
+    logger.debug('Blockhash from external cmd: %s' % hash)
 
     tfile.close()
 
     if hash is not None:
-        self.db.query(db.Work).filter_by(id=work_id).\
-            update({
-                "hash": hash,
-                "hash_status": "done",
-            }, synchronize_session=False)
+        work.hash = hash
 
+    work.status = 'done'
+    self.db.commit()

@@ -46,3 +46,5 @@ target/
 
 # commonshasher-specific
 config-local.py
+*~
+config_local.py

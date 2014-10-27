@@ -13,17 +13,23 @@ class Work(Base):
     id = Column(Integer, primary_key=True)
     handler = Column(String)
     url = Column(String)
+
+    # loaded -> queued -> processing -> done/error
+    status = Column(String)
+
+    # Current processing task
+    task_id = Column(String)
+    process_start = Column(DateTime)
+
     apidata = Column(String)
     hash = Column(String)
-    apidata_status = Column(String)
-    hash_status = Column(String)
     updated = Column(DateTime)
 
     def __init__(self, handler, url):
         self.handler = handler
         self.url = url
-        self.apidata_status = "queued"
-        self.hash_status = "queued"
+        self.status = 'loaded'
+
 
 def open_session():
     engine = create_engine(config.SQLALCHEMY_URL, echo=False)

@@ -1,9 +1,15 @@
 First attempt at making a distributed script for hashing image collections.
 It only 'works' with wikicommons dumps at the moment.
 
-Dependencies:
+# Installation
 
-    rabbitmq, blockhash, celery, requests, sqlalchemy
+Ubuntu package dependencies:
+
+    python3 rabbitmq
+
+pip package dependencies (recommended to install in a virtualenv):
+
+    celery requests sqlalchemy lxml
 
 To configure, copy config.py to config_local.py and change the values.
 
@@ -15,3 +21,7 @@ with a file containing a dump of articles:
 To start the hasher, run:
 
     celery -A hasher worker
+
+Queue a number of works, e.g. 1000:
+
+    python3 enqueue.py 1000
