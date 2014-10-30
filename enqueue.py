@@ -16,6 +16,9 @@ def main():
 
     session = db.open_session()
 
+    count = 0
+    diff = 0
+    
     while max_tasks > 0:
         # Find the next bunch of unqueued works,
         stmt = select([db.Work.id]).where(
@@ -28,9 +31,12 @@ def main():
             return
 
         max_tasks -= len(work_ids)
+        count += len(work_ids)
+        diff += len(work_ids)
 
-        print('Queuing {} works'.format(len(work_ids)))
-        print(work_ids)
+        if diff >= 10000:
+            print('Queued works: {}'.format(count))
+            diff = 0
 
         # We expect that this job is not run in parallel, so we don't
         # have to worry about the status changing under our feet
