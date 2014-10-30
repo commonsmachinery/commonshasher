@@ -17,7 +17,7 @@ class Work(Base):
     url = Column(String, unique=True)
 
     # loaded -> queued -> processing -> done/error
-    status = Column(String)
+    status = Column(String, index=True)
 
     # Current processing task
     task_id = Column(String)
