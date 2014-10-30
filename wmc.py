@@ -9,8 +9,8 @@ from datetime import datetime
 from sqlalchemy.sql import bindparam
 
 import celery
-from celery import task
 
+from app import app
 from common import DatabaseTask
 import config
 import db
@@ -92,8 +92,8 @@ def get_metadata(filelist):
 
     return filedata
 
-@task(name='wmc.process', bind=True, base=DatabaseTask,
-      track_started=True, ignore_result=True)
+@app.task(name='wmc.process', bind=True, base=DatabaseTask,
+          track_started=True, ignore_result=True)
 def process(self, work_ids):
     """Process a list of WMC works, given by their database IDs.  This should
     be a suitably large batch for calling the metadata API, e.g. 50 records.
@@ -139,7 +139,7 @@ def process(self, work_ids):
         work.apidata = json.dumps(data)
         self.db.commit()
 
-        if thumburl is not None:
+        if thumburl and not work.hash:
             # queue a hashing task for this work
             update_hash.apply_async((work.id, thumburl))
         else:
@@ -148,8 +148,8 @@ def process(self, work_ids):
             self.db.commit()
 
 
-@task(name='wmc.update_hash', bind=True, base=DatabaseTask, rate_limit=config.WMC_RATE_LIMIT,
-      track_started=True, ignore_result=True)
+@app.task(name='wmc.update_hash', bind=True, base=DatabaseTask, rate_limit=config.WMC_RATE_LIMIT,
+          track_started=True, ignore_result=True)
 def update_hash(self, work_id, image_url):
     work = self.db.query(db.Work).filter_by(id=work_id).one()
 
