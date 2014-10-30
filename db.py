@@ -12,7 +12,9 @@ class Work(Base):
 
     id = Column(Integer, primary_key=True)
     handler = Column(String)
-    url = Column(String)
+
+    # Never process an URL more than once
+    url = Column(String, unique=True)
 
     # loaded -> queued -> processing -> done/error
     status = Column(String)

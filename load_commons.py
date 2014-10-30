@@ -3,11 +3,9 @@
 import argparse
 import bz2
 from lxml import etree
-import db
+from sqlalchemy.exc import IntegrityError
 
-import logging
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+import db
 
 def main():
     argparser = argparse.ArgumentParser()
@@ -25,9 +23,6 @@ def main():
     else:
         maxworks = -1
 
-    if args.verbose:
-        logger.setLevel(logging.DEBUG)
-
     reader = bz2.BZ2File(filename, 'r')
     dump = etree.iterparse(reader, events=('end',))
 
@@ -39,11 +34,18 @@ def main():
         if elem.tag == '{http://www.mediawiki.org/xml/export-0.9/}page' and elem.findtext('.//{http://www.mediawiki.org/xml/export-0.9/}title').startswith('File:'):
             filename = elem.findtext('.//{http://www.mediawiki.org/xml/export-0.9/}title')
 
-            # TODO: query last_updated
-            work_record = db.Work("wmc", filename)
-            db_session.add(work_record)
-
+            try:
+                work_record = db.Work("wmc", filename)
+                db_session.add(work_record)
+                db_session.commit()
+            except IntegrityError:
+                # already inserted
+                db_session.rollback()
+            
             count += 1
+            if args.verbose and count % 10000 == 0:
+                print('processed records: {}'.format(count))
+
             if count == maxworks:
                 break
 
@@ -51,7 +53,7 @@ def main():
             while elem.getprevious() is not None:
                 del elem.getparent()[0]
 
-    db_session.commit()
+    print('processed records: {}'.format(count))
 
 if __name__ == "__main__":
     main()
