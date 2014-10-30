@@ -49,15 +49,22 @@ def get_metadata(filelist):
         r = requests.get(apirequest)
         apidata = etree.fromstring(r.text)
     except (etree.XMLSyntaxError, requests.exceptions.RequestException):
-        # TODO: self.retry()
-        return
+        return None
 
     filedata = {}
     for filename in filelist:
         logger.debug('Traversing API output for %s' % filename)
         filedata[filename] = {}
         try:
-            node = apidata.find('.//page[@title="%s"]//ii' % filename)
+            if '"' in filename:
+                if "'" in filename:
+                    logger.warning("Xpath can't (easily) handle strings with both ' and \", ignoring: {}".format(filename))
+                    continue
+                                   
+                node = apidata.find(".//page[@title='%s']//ii" % filename)
+            else:
+                node = apidata.find('.//page[@title="%s"]//ii' % filename)
+                
         except SyntaxError:
             logger.warning('Syntax error on filename %s' % filename)
             continue
@@ -93,7 +100,8 @@ def get_metadata(filelist):
     return filedata
 
 @app.task(name='wmc.process', bind=True, base=DatabaseTask,
-          track_started=True, ignore_result=True)
+          track_started=True, ignore_result=True,
+          max_retries=5)
 def process(self, work_ids):
     """Process a list of WMC works, given by their database IDs.  This should
     be a suitably large batch for calling the metadata API, e.g. 50 records.
@@ -131,6 +139,20 @@ def process(self, work_ids):
 
     filelist = [work.url for work in works]
     apidata = get_metadata(filelist)
+
+    if not apidata:
+        logger.warning('error getting apidata for {}, retrying'.format(work_ids))
+        # Failed getting works, clean up and retry later
+        stmt = db.Work.__table__.update().where(
+            db.Work.task_id == self.request.id
+        ).where(
+            db.Work.status == 'processing'
+        ).values(task_id=None, status='queued')
+        self.db.execute(stmt)
+        self.db.commit()
+
+        raise self.retry()
+
 
     for work in works:
         data = apidata[work.url]
