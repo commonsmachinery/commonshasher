@@ -1,7 +1,7 @@
 import config
 
 from sqlalchemy import create_engine
-from sqlalchemy import Table, Column, Integer, String, DateTime
+from sqlalchemy import Table, Column, Integer, String, DateTime, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.types import TypeDecorator, CHAR
