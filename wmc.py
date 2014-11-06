@@ -7,6 +7,9 @@ import subprocess
 from datetime import datetime
 
 from sqlalchemy.sql import bindparam
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+
 
 import celery
 
@@ -18,7 +21,7 @@ import db
 from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
-
+BASE = "http://commons.wikimedia.org/"
 APIBASE = 'http://commons.wikimedia.org/w/api.php?format=xml&action=query&prop=imageinfo&iiprop=sha1|url|thumbmime|extmetadata|archivename&iiurlwidth=640&iilimit=1&maxlag=5'
 
 def login():
@@ -206,3 +209,63 @@ def update_hash(self, work_id, image_url):
 
     work.status = 'done'
     self.db.commit()
+
+def export_work(work):
+    apidata = json.loads(work.apidata)
+
+    outputdata = {"annotations":[], "media":[]}
+    if 'artist' in apidata and apidata['artist'] is not None:
+        artistsoup = BeautifulSoup(apidata['artist'])
+        artistinfo = {}
+        if 'copyrighted' in apidata and apidata['copyrighted'] == "True":
+            artistinfo['propertyName'] = "copyright"
+            label = "holderLabel"
+            link = "holderLink"
+        else:
+            artistinfo['propertyName'] = "creator"
+            label= "creatorLabel"
+            link = "creatorLink"
+
+        artistinfo[label] = artistsoup.get_text()
+        artistinfo['value'] = artistinfo[label]
+        if artistsoup.a is not None:
+            artistinfo[link] = urljoin(BASE, artistsoup.a.get('href'))
+        outputdata["annotations"].append(artistinfo)
+
+    if 'description' in apidata and apidata['description'] is not None:
+        descriptionsoup = BeautifulSoup(apidata['description'])
+
+        outputdata["annotations"].append({"propertyName":"title", "language":"en", "titleLabel": descriptionsoup.get_text(), "value": descriptionsoup.get_text()})
+
+    outputdata["annotations"].append({"propertyName":"identifier","identifierLink":apidata['identifier'], "value":apidata['identifier']})
+    outputdata["annotations"].append({"propertyName":"locator","locatorLink":apidata['identifier'], "value":apidata['identifier']})
+
+    policydata = {"propertyName":"policy"}
+    if 'copyrighted' in apidata and apidata['copyrighted'] == "True":
+        if 'licenseurl' in apidata:
+            policydata["statementLink"] = apidata['licenseurl']
+            policydata['typeLabel'] = 'license'
+            policydata['typeLink'] = 'http://www.w3.org/1999/xhtml/vocab#license'
+    # This can sometimes be "Public domain", so it's valid also
+    # if the work is not copyrighted.
+    if 'licenseshort' in apidata:
+        policydata['statementLabel']= apidata['licenseshort']
+        policydata['value'] = apidata['licenseshort']
+
+    if len(policydata) > 1:
+        outputdata["annotations"].append(policydata)
+
+    # We create two media annotations, one for the thumbnail
+    # for which we have the blockhash, and one for the original
+    # image for which we just have the URL.
+    # Except! If the thumburl is the same as url (original is
+    # smaller than our minimum thumbnail size)
+
+    if apidata['url'] != apidata['thumburl']:
+        outputdata["media"].append({"annotations":[{"propertyName":"locator", "locatorLink":apidata['url'], "value":apidata['url']}]})
+    if work.hash is not None:
+        outputdata["media"].append({"annotations":[{"propertyName":"identifier","identifierLink":"urn:blockhash:%s" % work.hash, "value":"urn:blockhash:%s" % work.hash},{"propertyName":"locator", "locatorLink":apidata['thumburl'], "value":apidata['thumburl']}]})
+    else:
+        outputdata["media"].append({"annotations":[{"propertyName":"locator", "locatorLink":apidata['thumburl'], "value":apidata['thumburl']}]})
+
+    return outputdata
