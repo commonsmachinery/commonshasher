@@ -258,6 +258,7 @@ def export_work(work):
     # Add a collection annotation to the work object
     # to indicate that this comes from WMC.
     collectiondata = {
+        'propertyName': 'collection',
         'collectionLabel': 'Wikimedia Commons',
         'collectionLink': 'http://commons.wikimedia.org',
     }
