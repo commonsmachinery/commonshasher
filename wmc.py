@@ -255,6 +255,15 @@ def export_work(work):
     if len(policydata) > 1:
         outputdata["annotations"].append(policydata)
 
+    # Add a collection annotation to the work object
+    # to indicate that this comes from WMC.
+    collectiondata = {
+        'collectionLabel': 'Wikimedia Commons',
+        'collectionLink': 'http://commons.wikimedia.org',
+    }
+
+    outputdata['annotations'].append(collectiondata)
+
     # We create two media annotations, one for the thumbnail
     # for which we have the blockhash, and one for the original
     # image for which we just have the URL.
