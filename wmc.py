@@ -237,6 +237,9 @@ def export_work(work):
 
         outputdata["annotations"].append({"propertyName":"title", "language":"en", "titleLabel": descriptionsoup.get_text(), "value": descriptionsoup.get_text()})
 
+    if 'identifier' not in apidata:
+        raise RuntimeError('Work identifier missing')
+
     outputdata["annotations"].append({"propertyName":"identifier","identifierLink":apidata['identifier'], "value":apidata['identifier']})
     outputdata["annotations"].append({"propertyName":"locator","locatorLink":apidata['identifier'], "value":apidata['identifier']})
 
@@ -252,6 +255,12 @@ def export_work(work):
         policydata['statementLabel']= apidata['licenseshort']
         policydata['value'] = apidata['licenseshort']
 
+        # Works that are in the public domain should be marked up with PD licenseURL
+        if policydata['statementLabel'] == 'Public domain':
+            policydata["statementLink"] = 'http://creativecommons.org/publicdomain/mark/1.0/'
+            policydata['typeLabel'] = 'license'
+            policydata['typeLink'] = 'http://www.w3.org/1999/xhtml/vocab#license'
+
     if len(policydata) > 1:
         outputdata["annotations"].append(policydata)
 
@@ -261,6 +270,7 @@ def export_work(work):
         'propertyName': 'collection',
         'collectionLabel': 'Wikimedia Commons',
         'collectionLink': 'http://commons.wikimedia.org',
+        'value': 'Wikimedia Commons',
     }
 
     outputdata['annotations'].append(collectiondata)
@@ -271,10 +281,11 @@ def export_work(work):
     # Except! If the thumburl is the same as url (original is
     # smaller than our minimum thumbnail size)
 
+    # TODO: use 'hash' when hashm4 is renamed back
     if apidata['url'] != apidata['thumburl']:
         outputdata["media"].append({"annotations":[{"propertyName":"locator", "locatorLink":apidata['url'], "value":apidata['url']}]})
-    if work.hash is not None:
-        outputdata["media"].append({"annotations":[{"propertyName":"identifier","identifierLink":"urn:blockhash:%s" % work.hash, "value":"urn:blockhash:%s" % work.hash},{"propertyName":"locator", "locatorLink":apidata['thumburl'], "value":apidata['thumburl']}]})
+    if work.hashm4 is not None:
+        outputdata["media"].append({"annotations":[{"propertyName":"identifier","identifierLink":"urn:blockhash:%s" % work.hashm4, "value":"urn:blockhash:%s" % work.hashm4},{"propertyName":"locator", "locatorLink":apidata['thumburl'], "value":apidata['thumburl']}]})
     else:
         outputdata["media"].append({"annotations":[{"propertyName":"locator", "locatorLink":apidata['thumburl'], "value":apidata['thumburl']}]})
 
