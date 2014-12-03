@@ -33,8 +33,7 @@ def main():
     for event, elem in dump:
         if elem.tag == '{http://www.mediawiki.org/xml/export-0.9/}page' and elem.findtext('.//{http://www.mediawiki.org/xml/export-0.9/}title').startswith('File:'):
             filename = elem.findtext('.//{http://www.mediawiki.org/xml/export-0.9/}title')
-            if elem.find('.//{http://www.mediawiki.org/xml/export-0.9/}redirect
-') is not None:
+            if elem.find('.//{http://www.mediawiki.org/xml/export-0.9/}redirect') is not None:
                 continue  # Duplicate work
 
             try:
