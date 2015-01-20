@@ -210,6 +210,82 @@ def update_hash(self, work_id, image_url):
     work.status = 'done'
     self.db.commit()
 
+@app.task(name='wmc.export', bind=True, base=DatabaseTask,
+          track_started=True, ignore_result=True,
+          max_retries=5)
+def export(self, work_ids):
+    """Export a list of WMC works, given their database IDs.  This should
+    be a suitably large batch for calling the load script, e.g. 50 records.
+    """
+
+    if not work_ids:
+        logger.warning('called without any works')
+        return
+
+    logger.info('exporting: {}'.format(work_ids))
+
+    # Set ourselves as processing these tasks
+    stmt = db.Work.__table__.update().where(
+        db.Work.id.in_(work_ids)
+    ).where(
+        db.Work.status == 'queued_export'
+    ).values(task_id=self.request.id, process_start=datetime.now(), status='processing_export')
+
+    # logger.info('executing: {} with {}'.format(stmt, stmt.compile().params))
+    self.db.execute(stmt)
+    self.db.commit()
+
+    # Then load the work objects we got hold of
+    works = self.db.query(db.Work).filter_by(
+        task_id=self.request.id, status='processing_export'
+    ).all()
+
+    if not works:
+        logger.warning('did not find any works to export')
+        return
+
+    logger.info('working on {} objects'.format(len(works)))
+
+    work_pkgs = []
+
+    for work in works:
+        try:
+            pkg = export_work(work)
+            work_pkgs.append(json.dumps(pkg))
+        except RuntimeError as e:
+            logger.warning('Error exporting work {0}:{1}.'.format(work.handler, work.url))
+
+            work.status = 'error'
+
+    try:
+        load_input = bytes("\n".join(work_pkgs), 'utf-8')
+        load = subprocess.Popen(config.LOADDATA_COMMAND, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+        load.stdin.write(load_input)
+        load_out = str(load.communicate()[0], 'utf-8')
+
+        work_statuses = {}
+        for status in load_out.split('\n'):
+            status = status.strip()
+            if status == '':
+                continue
+
+            work_uri, work_status = status.split()
+            work_statuses[work_uri] = work_status
+
+        # update status for successfully exported works
+        for work in works:
+            identifier = json.loads(work.apidata)['identifier']
+            if identifier in work_statuses and work_statuses[identifier] == 'ok':
+                work.status = 'done_export'
+            else:
+                work.status = 'error'
+
+    except (subprocess.CalledProcessError, BlockingIOError):
+        for work in works:
+            work.status = 'error'
+
+    self.db.commit()
+
 def export_work(work):
     apidata = json.loads(work.apidata)
 
@@ -281,11 +357,10 @@ def export_work(work):
     # Except! If the thumburl is the same as url (original is
     # smaller than our minimum thumbnail size)
 
-    # TODO: use 'hash' when hashm4 is renamed back
     if apidata['url'] != apidata['thumburl']:
         outputdata["media"].append({"annotations":[{"propertyName":"locator", "locatorLink":apidata['url'], "value":apidata['url']}]})
-    if work.hashm4 is not None:
-        outputdata["media"].append({"annotations":[{"propertyName":"identifier","identifierLink":"urn:blockhash:%s" % work.hashm4, "value":"urn:blockhash:%s" % work.hashm4},{"propertyName":"locator", "locatorLink":apidata['thumburl'], "value":apidata['thumburl']}]})
+    if work.hash is not None:
+        outputdata["media"].append({"annotations":[{"propertyName":"identifier","identifierLink":"urn:blockhash:%s" % work.hash, "value":"urn:blockhash:%s" % work.hash},{"propertyName":"locator", "locatorLink":apidata['thumburl'], "value":apidata['thumburl']}]})
     else:
         outputdata["media"].append({"annotations":[{"propertyName":"locator", "locatorLink":apidata['thumburl'], "value":apidata['thumburl']}]})
 

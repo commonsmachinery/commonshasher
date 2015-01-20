@@ -31,9 +31,9 @@ def main():
     count = 0
 
     for event, elem in dump:
-        if elem.tag == '{http://www.mediawiki.org/xml/export-0.9/}page' and elem.findtext('.//{http://www.mediawiki.org/xml/export-0.9/}title').startswith('File:'):
-            filename = elem.findtext('.//{http://www.mediawiki.org/xml/export-0.9/}title')
-            if elem.find('.//{http://www.mediawiki.org/xml/export-0.9/}redirect') is not None:
+        if elem.tag == '{http://www.mediawiki.org/xml/export-0.10/}page' and elem.findtext('.//{http://www.mediawiki.org/xml/export-0.10/}title').startswith('File:'):
+            filename = elem.findtext('.//{http://www.mediawiki.org/xml/export-0.10/}title')
+            if elem.find('.//{http://www.mediawiki.org/xml/export-0.10/}redirect') is not None:
                 continue  # Duplicate work
 
             try:
@@ -43,7 +43,7 @@ def main():
             except IntegrityError:
                 # already inserted
                 db_session.rollback()
-            
+
             count += 1
             if args.verbose and count % 10000 == 0:
                 print('processed records: {}'.format(count))

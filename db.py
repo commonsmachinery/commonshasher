@@ -54,7 +54,17 @@ class Work(Base):
     url = Column(String, unique=True)
 
     # loaded -> queued -> processing -> done/error
-    status = Column(Enum('loaded', 'queued', 'processing', 'done', 'error', name='status'))
+    status = Column(Enum(
+        'loaded',
+        'queued',
+        'processing',
+        'done',
+        'error',
+        'queued_export',
+        'processing_export',
+        'done_export',
+        name='status'
+    ))
 
     # Current processing task
     task_id = Column(GUID)

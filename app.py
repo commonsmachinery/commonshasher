@@ -10,5 +10,6 @@ app.conf.update(
     CELERY_ROUTES = {
         'wmc.process': { 'queue': 'wmc.apidata' },
         'wmc.update_hash': { 'queue': 'wmc.hash' },
+        'wmc.export': { 'queue': 'wmc.export' },
     },
 )
